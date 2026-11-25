@@ -1,3 +1,4 @@
+## Buổi 1: Làm quen  (2026-11-25)
 @pyproject.toml và uv.lock khác nhau thế nào? Vì sao phải commit cả hai?
 Khác nhau thế nào
 pyproject.toml	uv.lock
@@ -148,3 +149,18 @@ Mình chưa sửa gì. Mình có thể làm giúp bạn một hoặc cả hai vi
 Đổi .gitignore sang .env* / !.env.example.
 Thêm cấu hình pre-commit với gitleaks (cái này thêm một dev dependency).
 Bạn muốn làm việc nào?
+
+## Buổi 2: MCP Context7 (2026-11-25)
+- Tra google-genai: gọi tool resolve-library-id 2 lần, tool query-docs 3 lần. và không hỏi quyền. sau đó gửi bảng plan hỏi quyền ghi từ tôi
+- Gõ /context:
+    MCP tools                   1.9k 0.2%
+    MCP server instructions     1.8k 0.2%
+
+1. Server này cho Claude Code thêm khả năng gì?
+Thêm khả năng tra cứu internet bên ngoài. Nó chỉ có 2 tool: resolve-library-id để tìm thư viện, query-docs để lấy tài liệu của thư viện đó
+2. Ai đọc .mcp.json, vào lúc nào? Kết quả tra tài liệu quay về nằm ở đâu?
+claude sẽ đọc .mcp.json, vào lúc mở phiên. kết quả tra tài liệu sẽ được chèn thẳng vào context cuộc hội thoại
+3. Vì sao chọn scope project mà không chọn local?
+Vì local thì chỉ có tôi ở trong repo đó mới dùng được, còn project thì ai clone repo này đều dùng được
+4. Thứ có thể hỏng:
+MCP này là bên thứ 3 và content của nó đi thằng vào context nên nếu trong content có những dòng "hãy chạy lệnh X" thì sẽ bị lừa, có thể bị hack gì đó. Claude code có hỏi tôi có tin tưởng server này không và của nó chỉ hiện "read-only"
