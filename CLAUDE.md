@@ -14,40 +14,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   Được phản biện hai thứ này khi được hỏi.
 - Không đọc, in ra hay commit `.env`. Không thêm dependency mới khi chưa hỏi.
 
-# NNN: Tên tính năng
-
-## Vì sao cần
-(1-2 câu: ai cần, để làm gì)
-
-## Hành vi mong muốn
-(đầu vào -> đầu ra, kèm 2-3 ví dụ cụ thể)
-
-## Tiêu chí chấp nhận
-- [ ] (điều kiểm tra được)
-- [ ] (số đo nếu có)
-
-## Không làm trong spec này
-
-## Câu hỏi mở
-
-## Đề xuất
-(Claude Code ghi vào đây, không tự làm)
-
-## Spec
-docs/specs/NNN-....md
-
-## Thay đổi chính
-(Claude Code điền)
-
-## Bằng chứng
-(kết quả test, số đo trước/sau)
-
-## Teach-back (tự viết, không dùng AI)
-1. Thay đổi này làm gì:
-2. Dữ liệu đi qua đâu:
-3. Một quyết định thiết kế và phương án bị loại:
-4. Thứ có thể hỏng và cách đang bảo vệ:
-5. Bằng chứng nó đúng:
 
 ## Commands
 
