@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Không viết hộ file spec. Không viết hộ mục "Teach-back" trong pull request.
   Được phản biện hai thứ này khi được hỏi.
 - Không đọc, in ra hay commit `.env`. Không thêm dependency mới khi chưa hỏi.
-
+- Spec mới copy từ docs/specs/TEMPLATE.md, đặt tên docs/specs/NNN-ten-ngan.md.
 
 ## Commands
 
