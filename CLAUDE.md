@@ -10,8 +10,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Pull request nhỏ: dưới 300 dòng diff, 1 mục đích.
 - Mọi thay đổi logic phải có test. Chạy `uv run pytest -q` trước khi báo xong
   và dán kết quả thật.
-- Không viết hộ file spec. Không viết hộ mục "Teach-back" trong pull request.
-  Được phản biện hai thứ này khi được hỏi.
+- Spec: được viết nháp trong một phiên riêng, chỉ để viết spec. Phiên hiện thực spec
+  không được sửa spec, ngoài mục "Đề xuất". Spec phải qua một phiên phản biện khác
+  và được chủ repo duyệt trước khi code.
+- Teach-back trong PR: được viết, ghi rõ "(Claude Code viết)". Chủ repo trả lời câu hỏi
+  kiểm tra của mentor trước khi merge.
 - Không đọc, in ra hay commit `.env`. Không thêm dependency mới khi chưa hỏi.
 - Spec mới copy từ docs/specs/TEMPLATE.md, đặt tên docs/specs/NNN-ten-ngan.md.
 
