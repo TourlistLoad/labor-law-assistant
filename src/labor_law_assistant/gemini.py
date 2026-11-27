@@ -1,5 +1,6 @@
 """Gemini adapter: the only module that knows httpx and the REST format."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -17,6 +18,10 @@ API_URL = (
 SAFETY_REASONS = frozenset(
     {"SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"}
 )
+TIMEOUT_SECONDS = 30
+# One delay per retry: 3 retries, 4 attempts in total.
+RETRY_DELAYS = (1, 2, 4)
+RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 
 
 class Answer(BaseModel):
@@ -63,6 +68,20 @@ class MalformedError(Exception):
     def __init__(self, finish_reason: str | None) -> None:
         super().__init__(finish_reason)
         self.finish_reason = finish_reason
+
+
+class GeminiHTTPError(Exception):
+    def __init__(self, status: int, message: str, key_invalid: bool) -> None:
+        super().__init__(f"HTTP {status}: {message}")
+        self.status = status
+        self.message = message
+        self.key_invalid = key_invalid
+
+
+class GeminiUnavailable(Exception):
+    def __init__(self, last: str) -> None:
+        super().__init__(last)
+        self.last = last
 
 
 def build_request(question: str, *, model: str, key: str) -> httpx.Request:
@@ -121,3 +140,62 @@ def parse_response(response: httpx.Response, *, model: str) -> Reply:
             total_tokens=usage.get("totalTokenCount"),
         ),
     )
+
+
+def _http_error(response: httpx.Response) -> GeminiHTTPError:
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    error = body.get("error", {}) if isinstance(body, dict) else {}
+    details = error.get("details", [])
+    return GeminiHTTPError(
+        status=response.status_code,
+        message=error.get("message") or response.reason_phrase,
+        key_invalid=any(d.get("reason") == "API_KEY_INVALID" for d in details),
+    )
+
+
+def retry_reason(error: Exception) -> str | None:
+    """Return the reason shown in the retry log, or None if not retryable."""
+    if isinstance(error, GeminiHTTPError):
+        return f"HTTP {error.status}" if error.status in RETRYABLE_STATUSES else None
+    # TimeoutException subclasses TransportError, so it must be checked first.
+    if isinstance(error, httpx.TimeoutException):
+        return f"hết thời gian chờ {TIMEOUT_SECONDS}s"
+    if isinstance(error, httpx.TransportError):
+        return "lỗi kết nối"
+    return None
+
+
+def ask(
+    question: str,
+    *,
+    model: str,
+    key: str,
+    send: Callable[[httpx.Request], httpx.Response],
+    sleep: Callable[[float], None],
+    log: Callable[[str], None],
+) -> Reply:
+    request = build_request(question, model=model, key=key)
+    retries = 0
+    # The only retry loop in the program.
+    while True:
+        try:
+            response = send(request)
+            if response.is_error:
+                raise _http_error(response)
+        except (GeminiHTTPError, httpx.TransportError) as error:
+            reason = retry_reason(error)
+            if reason is None:
+                raise
+            if retries == len(RETRY_DELAYS):
+                last = str(error) if isinstance(error, GeminiHTTPError) else reason
+                raise GeminiUnavailable(last) from error
+            delay = RETRY_DELAYS[retries]
+            retries += 1
+            log(f"Đang thử lại ({retries}/{len(RETRY_DELAYS)}) sau {delay}s: {reason}")
+            sleep(delay)
+        else:
+            # Outside the try: a bad response is never retried.
+            return parse_response(response, model=model)
