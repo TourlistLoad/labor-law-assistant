@@ -200,3 +200,18 @@ lỗi đó, kể cả khi các lần trước bị lỗi khác. Ví dụ: lần 
 
 ## Đề xuất
 (Claude Code ghi vào đây, không tự làm)
+
+1. **HTTP 402 và `FAILED_PRECONDITION`**: hiện rơi vào nhóm "Request không hợp lệ" (exit 1,
+   "Lỗi chương trình"). Nhưng lỗi về thanh toán, hoặc khu vực không được hỗ trợ, là việc người dùng tự sửa được,
+   nên theo bảng ý nghĩa exit code thì hợp với exit 2 kèm gợi ý. Cần tra tài liệu Gemini xem các lỗi này
+   được báo bằng mã nào và có `reason` nào trong `error.details`.
+2. **`finishReason = CONTINUATION`**: hiện rơi vào nhóm "Phản hồi hỏng" (exit 4). Cần tra tài liệu để biết
+   giá trị này nghĩa là gì và có nên xử lý riêng hay không.
+3. **Timeout theo pha**: `httpx.Client(timeout=30)` đặt 30s cho **từng pha** (connect, read, write, pool),
+   không phải tổng thời gian một lần thử, nên một lần thử có thể kéo dài hơn 30s. Cân nhắc đặt timeout riêng
+   cho từng pha bằng `httpx.Timeout`, hoặc thêm một hạn chót tổng cho mỗi lần thử.
+4. **Thinking khoảng 30s**: với câu hỏi khó, model có thể suy nghĩ gần 30s trước khi gửi byte đầu tiên. Khi đó
+   read timeout sẽ báo lỗi dù model vẫn đang làm việc, và còn bị retry lãng phí. Cân nhắc hạ mức thinking hoặc
+   tăng read timeout; cần số đo thời gian thật trước khi chọn.
+5. **Jitter**: thời gian chờ cố định 1, 2, 4s khiến nhiều client gặp lỗi cùng lúc sẽ retry cùng lúc.
+   Cân nhắc thêm jitter ngẫu nhiên (hàm chờ vẫn được truyền vào, nên test không bị ảnh hưởng).

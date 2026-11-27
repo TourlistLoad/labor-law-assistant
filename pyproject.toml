@@ -8,6 +8,9 @@ dependencies = [
     "pydantic>=2.14.4",
 ]
 
+[project.scripts]
+lla = "labor_law_assistant.cli:run"
+
 [build-system]
 requires = ["uv_build>=0.12.20,<0.13"]
 build-backend = "uv_build"
