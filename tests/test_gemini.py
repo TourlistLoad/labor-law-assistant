@@ -7,10 +7,15 @@ from labor_law_assistant.gemini import (
     MAX_OUTPUT_TOKENS,
     Answer,
     BlockedError,
+    GeminiHTTPError,
+    GeminiUnavailable,
     MalformedError,
+    Reply,
     TruncatedError,
+    ask,
     build_request,
     parse_response,
+    retry_reason,
 )
 from labor_law_assistant.prompts import SYSTEM_INSTRUCTION
 
@@ -204,3 +209,171 @@ def test_non_json_body_is_malformed():
     with pytest.raises(MalformedError) as error:
         parse_response(response, model=SENT_MODEL)
     assert error.value.finish_reason is None
+
+
+# Bad-key body copied from ai.google.dev/gemini-api/docs/generate-content/api-errors
+BAD_KEY_BODY = {
+    "error": {
+        "code": 400,
+        "message": "API key not valid. Please pass a valid API key.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+            {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "API_KEY_INVALID",
+                "domain": "googleapis.com",
+                "metadata": {"service": "generativelanguage.googleapis.com"},
+            },
+            {
+                "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+                "locale": "en-US",
+                "message": "API key not valid. Please pass a valid API key.",
+            },
+        ],
+    }
+}
+
+
+def error_response(status, message="The model is overloaded."):
+    return httpx.Response(status, json={"error": {"code": status, "message": message}})
+
+
+class FakeGemini:
+    """Plays back one outcome per call: a response to return or an exception."""
+
+    def __init__(self, *outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = 0
+        self.sleeps = []
+        self.logs = []
+
+    def send(self, request):
+        self.calls += 1
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    def ask(self):
+        return ask(
+            "Câu hỏi",
+            model=SENT_MODEL,
+            key=KEY,
+            send=self.send,
+            sleep=self.sleeps.append,
+            log=self.logs.append,
+        )
+
+
+def test_always_503_gives_up_after_4_attempts():
+    fake = FakeGemini(*[error_response(503) for _ in range(4)])
+
+    with pytest.raises(GeminiUnavailable) as error:
+        fake.ask()
+    assert fake.calls == 4
+    assert fake.sleeps == [1, 2, 4]
+    assert fake.logs == [
+        "Đang thử lại (1/3) sau 1s: HTTP 503",
+        "Đang thử lại (2/3) sau 2s: HTTP 503",
+        "Đang thử lại (3/3) sau 4s: HTTP 503",
+    ]
+    assert error.value.last == "HTTP 503: The model is overloaded."
+
+
+def test_503_then_success():
+    fake = FakeGemini(error_response(503), httpx.Response(200, json=ok_body()))
+
+    assert isinstance(fake.ask(), Reply)
+    assert fake.calls == 2
+    assert fake.sleeps == [1]
+
+
+def test_400_not_retried():
+    fake = FakeGemini(error_response(400, "Invalid JSON payload."))
+
+    with pytest.raises(GeminiHTTPError) as error:
+        fake.ask()
+    assert fake.calls == 1
+    assert (fake.sleeps, fake.logs) == ([], [])
+    assert error.value.status == 400
+    assert error.value.message == "Invalid JSON payload."
+    assert error.value.key_invalid is False
+
+
+def test_503_then_400_stops_at_400():
+    fake = FakeGemini(error_response(503), error_response(400))
+
+    with pytest.raises(GeminiHTTPError) as error:
+        fake.ask()
+    assert fake.calls == 2
+    assert error.value.status == 400
+
+
+def test_501_not_retried():
+    fake = FakeGemini(error_response(501))
+
+    with pytest.raises(GeminiHTTPError) as error:
+        fake.ask()
+    assert fake.calls == 1
+    assert error.value.status == 501
+
+
+@pytest.mark.parametrize(
+    ("exception", "reason"),
+    [
+        (httpx.ReadTimeout("timed out"), "hết thời gian chờ 30s"),
+        (httpx.ConnectError("connection refused"), "lỗi kết nối"),
+    ],
+)
+def test_transport_errors_retried(exception, reason):
+    fake = FakeGemini(exception, httpx.Response(200, json=ok_body()))
+
+    fake.ask()
+    assert fake.calls == 2
+    assert fake.logs == [f"Đang thử lại (1/3) sau 1s: {reason}"]
+
+
+def test_transport_error_last_is_reason():
+    fake = FakeGemini(*[httpx.ConnectError("refused") for _ in range(4)])
+
+    with pytest.raises(GeminiUnavailable) as error:
+        fake.ask()
+    assert error.value.last == "lỗi kết nối"
+
+
+def test_bad_key_body_from_docs_is_key_invalid():
+    fake = FakeGemini(httpx.Response(400, json=BAD_KEY_BODY))
+
+    with pytest.raises(GeminiHTTPError) as error:
+        fake.ask()
+    assert fake.calls == 1
+    assert error.value.key_invalid is True
+    assert error.value.message == "API key not valid. Please pass a valid API key."
+
+
+def test_non_json_error_uses_reason_phrase():
+    fake = FakeGemini(httpx.Response(404, text="<html>Not here</html>"))
+
+    with pytest.raises(GeminiHTTPError) as error:
+        fake.ask()
+    assert error.value.message == "Not Found"
+
+
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [(code, f"HTTP {code}") for code in (408, 429, 500, 502, 503, 504)]
+    + [(code, None) for code in (400, 401, 403, 404, 501)],
+)
+def test_retry_classification(status, reason):
+    error = GeminiHTTPError(status, "message", key_invalid=False)
+
+    assert retry_reason(error) == reason
+
+
+def test_parse_errors_not_retried():
+    fake = FakeGemini(httpx.Response(200, json=ok_body(in_scope="true")))
+
+    with pytest.raises(MalformedError):
+        fake.ask()
+    assert fake.calls == 1
+    assert (fake.sleeps, fake.logs) == ([], [])
